@@ -1,0 +1,30 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int           @id @default(autoincrement())
+  email     String        @unique
+  password  String
+  firstName String
+  lastName  String
+  createdAt DateTime      @default(now())
+  account   BankAccount[]
+}
+
+model BankAccount {
+  id            Int      @id @default(autoincrement()) //hesabın kendi ID'si
+  user          User     @relation(fields: [userId], references: [id]) // ② userId alanı User'dan id alanına bağlanması
+  userId        Int // Bağlı olduğu kullanıcının ID'si (foreign key)
+  name          String
+  accountNumber String   @unique
+  iban          String   @unique
+  balance       Float    @default(0.0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
