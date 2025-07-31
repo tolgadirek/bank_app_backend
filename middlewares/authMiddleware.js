@@ -1,15 +1,15 @@
 const jwt = require("jsonwebtoken");
 
-const auth = (req, res, next) => {
+const auth = (req, res, next) => { //next() çağrıldığında bir sonraki middleware'e veya route’a geçilir
     const token = req.headers.authorization?.split(" ")[1]; 
     //"Bearer dfnflskdfn" gibi gelen verinin sadece dfnflskdfn kısmını almış olduk
 
     if(!token) {
-        res.status(401).json({ message: "No token"});
+        return res.status(401).json({ message: "No token"});
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.SECRET_TOKEN);
+        const decoded = jwt.verify(token, process.env.SECRET_TOKEN); //JWT token'ı çözümlemek ve doğrulamak için kullanılır.
         req.user = decoded // Artık req.user.id ile erişebiliriz
         next();
     } catch (e) {
