@@ -10,7 +10,7 @@ function generateIban(accountNumber) {
 }
 
 const createAccount = async (req, res) => {
-    const { name } = req.body; //Kulllanıcı arayüzde sadece burayı dolduracağı için sadece name aldık.
+    const { name } = req.body; //Arayüzden sadece bu bilgi json olarak post edildiği için tek bunu yazdık
     const userId = req.user.id; //authMiddlewarede token doğrulaması sonrası gerekli id atanır buraya
 
     try {
