@@ -6,7 +6,7 @@ const getTransactionDescription = (type, relatedUser) => {
         case "DEPOSIT":
             return "Money Deposited";
         case "WITHDRAW":
-            return "Money withdrawed";
+            return "Money Withdrawed";
         case "TRANSFER_OUT":
             return `Money was sent to ${relatedUser.firstName} ${relatedUser.lastName}`;
         case "TRANSFER_IN":
@@ -16,9 +16,76 @@ const getTransactionDescription = (type, relatedUser) => {
     }
 }
 
+const validateTransactionDetails = async (req, res) => {
+    const { accountId, type, amount, relatedIban, relatedFirstName, relatedLastName } = req.body;
+
+    let relatedAccountId = null;
+
+    try {
+    if (!accountId || !type || !amount || amount <= 0) { //Geçersiz bilgilerde hata mesajı
+            return res.status(400).json({ message: "Enter valid data"});
+        }
+
+        const account = await prisma.bankAccount.findUnique({ //Kullanıcının seçtiği hesap mevcut mu değil mi
+            where: { id: accountId },
+            include: {user: true}
+        });
+
+        if(!account){ //Mevcut değilse hata döndür
+            return res.status(404).json({ message: "Account not found"});
+        }
+
+        if (req.user.id !== account.userId) { //Kullanıcı ve hesaptaki idler uyuşmazsa işlem yaptırmama
+            return res.status(403).json({ message: "You cannot make transactions to this account." });
+        }
+
+        let relatedUser = null; // Karşı tarafın idsini  null yap. para çekme yatırma işlemlerinden dolayı.
+
+        if(type === "TRANSFER_OUT") { //Eğer transfer varsa
+            const relatedAccount = await prisma.bankAccount.findUnique({ // Karşı tarafın hesabını bul
+                where: {iban: relatedIban},
+                include: {user: true}
+            });
+            if(!relatedAccount) { //Girilen bilgilerde bi hesap yoksa hata döndür.
+                return res.status(404).json({message: "Iban not found"});
+            }
+
+            //ALıcı isim ve soyisim uyuşmazsa hata
+            if (relatedAccount.user.firstName !== relatedFirstName || relatedAccount.user.lastName !== relatedLastName) {
+                return res.status(400).json({ message: "IBAN and name/surname do not match" });
+            }
+
+            relatedUser = relatedAccount.user; // Hesap bulunursa karşı tarafın userını al.
+            relatedAccountId = relatedAccount.id; //Modelde account ile ilişkiyi bu değişkenle kurduğumuz için gönderilen json mesajlarında bunu göndermek zorunda olduğumuz için o ibana ait relatedAccountId buluyoruz ve tanımlıyoruz.
+
+            if(account.balance < amount) { // Girilen miktar balancetan büyükse hata
+                return res.status(400).json({message: "Insufficient balance"});
+            }
+
+            // Gerekli alanlar var mı yoksa null mu kontrolü.
+            if (!relatedIban || !relatedFirstName || !relatedLastName) {
+                return res.status(400).json({ message: "Missing receiver IBAN or name/surname" });
+            }
+            
+        }
+
+        if (type === "WITHDRAW") {
+            if (account.balance < amount) { // amount balancetan büyük olamaz
+                return res.status(400).json({message: "Insufficient balance"});
+            }
+        }
+
+        return res.status(200).json({ message: "Validation successful" });
+    } catch (e) {
+        return res.status(500).json({message: e.message});
+    }
+}
+
 const createTransaction = async (req, res) => {
-    const { accountId, type, amount, relatedAccountId, relatedIban, relatedFirstName, relatedLastName } = req.body;
+    const { accountId, type, amount, relatedIban, relatedFirstName, relatedLastName } = req.body;
      //Ui tarafından json formatında post edilen buraya gelecek olan bilgiler
+
+    let relatedAccountId = null; //Para çekme yatırma işlemleri için en başta null yaptık karşı tarafın idsini.
 
     try {
         if (!accountId || !type || !amount || amount <= 0) { //Geçersiz bilgilerde hata mesajı
@@ -46,7 +113,7 @@ const createTransaction = async (req, res) => {
                 include: {user: true}
             });
             if(!relatedAccount) { //Girilen bilgilerde bi hesap yoksa hata döndür.
-                return res.status(404).json({messsage: "No such account found"});
+                return res.status(404).json({message: "No such account found"});
             }
 
             //ALıcı isim ve soyisim uyuşmazsa hata
@@ -61,7 +128,7 @@ const createTransaction = async (req, res) => {
                 return res.status(400).json({message: "Insufficient balance"});
             }
 
-            if(type === "TRANSFER_OUT") {
+            if(type === "TRANSFER_OUT") { // Gerekli alanlar var mı yoksa null mu kontrolü.
                 if (!relatedIban || !relatedFirstName || !relatedLastName) {
                     return res.status(400).json({ message: "Missing receiver IBAN or name/surname" });
                 }
@@ -102,7 +169,7 @@ const createTransaction = async (req, res) => {
                 return res.status(400).json({message: "Insufficient balance"});
             }
 
-            await prisma.bankAccount.update({ //PAra çekince amount kadar balance azalt.
+            await prisma.bankAccount.update({ //Para çekince amount kadar balance azalt.
                 where: {id: accountId},
                 data: {balance: {decrement: amount}}
             });
@@ -153,4 +220,4 @@ const getTransactionsByAccount = async (req, res) => {
     }
 }
 
-module.exports = {createTransaction, getTransactionsByAccount}
+module.exports = {createTransaction, getTransactionsByAccount, validateTransactionDetails}

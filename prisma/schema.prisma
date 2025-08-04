@@ -41,5 +41,5 @@ model Transaction {
   description      String
   createdAt        DateTime     @default(now())
   relatedAccount   BankAccount? @relation("RelatedAccountTransactions", fields: [relatedAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  relatedAccountId Int
+  relatedAccountId Int?
 }
