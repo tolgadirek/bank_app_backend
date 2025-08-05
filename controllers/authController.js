@@ -12,6 +12,19 @@ const register = async (req, res) => {
         if(existingUser){ // Eğer bulunursa
             return res.status(400).json({message : "Email already exist."})
         }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; //email formatı kontrolü
+
+        // ^ -> string başlangıcı
+        // [\w\-\.]+ -> kullanıcı adı (harf, sayı, _, -, . olabilir)
+        // @ -> @ karakteri
+        // ([\w\-]+\.)+ -> alan adı (gmail. veya mail.google. gibi)
+        // [\w\-]{2,4} -> uzantı (com, net, org gibi 2-4 karakterli)
+        // $ -> string sonu
+
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ message: "Invalid email format." });
+        }
         
         if(password.length < 6){
             return res.status(400).json({message : "Your password must be at least 6 characters long."})
@@ -47,8 +60,8 @@ const login = async (req, res) => {
             return res.status(404).json({message : "User not found."})
         }
         
-        const comparePassword = await bcrypt.compare(password, user.password)
-        if(!comparePassword) {
+        const comparePassword = await bcrypt.compare(password, user.password) // passwordları karşılaştırma
+        if(!comparePassword) { // Eğer uyuşmazsa
             return res.status(401).json({ message: "Invalid password" });
         }
         
@@ -64,4 +77,114 @@ const login = async (req, res) => {
     }
 }
 
-module.exports = {register, login}
+const getProfile = async (req, res) => {
+    userId = req.user.id;
+
+    try {
+        const existingUser = await prisma.user.findUnique({
+            where: {id: userId},
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phoneNumber: true,
+                createdAt: true
+            }
+        });
+
+        if(!existingUser) {
+            return res.status(404).json({message: "User not found"});
+        }
+
+        return res.status(200).json({
+            status: "Ok",
+            user: existingUser,
+        });
+
+    } catch (e) {
+        return res.status(500).json({ message: e.message });
+    }
+}
+
+const update = async (req, res) => {
+    userId = req.user.id;
+    const { firstName, lastName, phoneNumber, email, password } = req.body
+
+    try {
+        // Kullanıcı var mı kontrolü
+        const existingUser = await prisma.user.findUnique({
+            where: { id: userId },
+        });
+
+        if (!existingUser) {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        // Boş alan kontrolü
+        if (!firstName || !lastName || !phoneNumber || !email) {
+            return res.status(400).json({ message: "Enter valid data." });
+        }
+
+        // Telefon numarası kontrolü
+        if (!/^\d{11}$/.test(phoneNumber)) {
+            return res.status(400).json({ message: "Phone number must be exactly 11 digits and numeric." });
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/; //Emaili formatı kontrolü
+
+        // ^ -> string başlangıcı
+        // [\w\-\.]+ -> kullanıcı adı (harf, sayı, _, -, . olabilir)
+        // @ -> @ karakteri
+        // ([\w\-]+\.)+ -> alan adı (gmail. veya mail.google. gibi)
+        // [\w\-]{2,4} -> uzantı (com, net, org gibi 2-4 karakterli)
+        // $ -> string sonu
+
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ message: "Invalid email format." });
+        }
+
+        // Email başka biri tarafından kullanılıyor mu kontrolü
+        if (email !== existingUser.email) {
+            const emailExists = await prisma.user.findUnique({ where: { email } });
+            if (emailExists) {
+                return res.status(400).json({ message: "This email is already in use." });
+            }
+        }
+
+        const updateData = {
+            firstName,
+            lastName,
+            phoneNumber,
+            email,
+        };
+
+        // Şifre boş değilse güncelle
+        if (password && password.length > 0) {
+            if (password.length < 6) {
+                return res.status(400).json({ message: "Password must be at least 6 characters long." });
+            }
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updateData.password = hashedPassword;
+        }
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: updateData,
+        });
+
+        //Json formatında veriler gönderilip alınırken json içinde password gözükmesin diyoruz. Güvenlik için.
+        //Ama veritabanına hashlanmiş şekilde veri gönderilir ve kaydedilir.
+        updatedUser.password = undefined;
+
+        return res.status(200).json({
+            status: "Updated",
+            user: updatedUser,
+        });
+
+    } catch (e) {
+        return res.status(500).json({message: e.message});
+    }
+}
+
+module.exports = {register, login, update, getProfile}
