@@ -2,14 +2,17 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require("bcrypt")
 const jwt = require('jsonwebtoken');
+const logger = require('../utils/logger');
 
 const register = async (req, res) => {
     const {email, password, firstName, lastName, phoneNumber} = req.body // Kullanıcının dolduracağı alanları aldık sadece.
 
+    logger.info(`Trying to register user with email: ${email}`);
+
     try{
-        
         const existingUser = await prisma.user.findUnique({where : {email}}) //emaillerde unique arama yapar
         if(existingUser){ // Eğer bulunursa
+            logger.warn(`Registration failed: email already exists (${email})`);
             return res.status(400).json({message : "Email already exist."})
         }
 
@@ -41,12 +44,15 @@ const register = async (req, res) => {
 
         const userToken = jwt.sign({id: newUser.id}, process.env.SECRET_TOKEN, {expiresIn: "1d"}); //User için token oluşturma
 
+        logger.info(`User registered successfully: ${email}`);
+        
         return res.status(201).json({ 
             status : "Created",
             user: newUser,
             token : userToken
          });
     } catch (error) {
+        logger.error(`Registration error: ${error.message}`);
         return res.status(500).json({ message: error.message });
     }
 }
@@ -54,31 +60,40 @@ const register = async (req, res) => {
 const login = async (req, res) => {
     const {email, password} = req.body
 
+    logger.info(`Login attempt: ${email}`);
+
     try {
         const user = await prisma.user.findUnique({where: {email}})
         if(!user) {
-            return res.status(404).json({message : "User not found."})
+            logger.warn(`Login failed - user not found: ${email}`);
+            return res.status(404).json({message : "User not found."});
         }
         
         const comparePassword = await bcrypt.compare(password, user.password) // passwordları karşılaştırma
         if(!comparePassword) { // Eğer uyuşmazsa
+            logger.warn(`Login failed - invalid password: ${email}`);
             return res.status(401).json({ message: "Invalid password" });
         }
         
         const token = jwt.sign({id: user.id}, process.env.SECRET_TOKEN, {expiresIn: "1d"})
     
+        logger.info(`Login successful: ${email}`);
+        
         return res.status(200).json({
             status: "Ok",
             user: user,
             token: token
         })
     } catch {
+        logger.error(`Login error: ${error.message}`);
         return res.status(500).json({ message: error.message });
     }
 }
 
 const getProfile = async (req, res) => {
     userId = req.user.id;
+
+    logger.info(`Get profile for user ID: ${userId}`);
 
     try {
         const existingUser = await prisma.user.findUnique({
@@ -94,6 +109,7 @@ const getProfile = async (req, res) => {
         });
 
         if(!existingUser) {
+            logger.warn(`User not found in profile fetch: ${userId}`);
             return res.status(404).json({message: "User not found"});
         }
 
@@ -103,6 +119,7 @@ const getProfile = async (req, res) => {
         });
 
     } catch (e) {
+        logger.error(`Get profile error: ${e.message}`);
         return res.status(500).json({ message: e.message });
     }
 }
@@ -110,6 +127,8 @@ const getProfile = async (req, res) => {
 const update = async (req, res) => {
     userId = req.user.id;
     const { firstName, lastName, phoneNumber, email, password } = req.body
+
+    logger.info(`Update request for user ID: ${userId}`);
 
     try {
         // Kullanıcı var mı kontrolü
@@ -148,6 +167,7 @@ const update = async (req, res) => {
         if (email !== existingUser.email) {
             const emailExists = await prisma.user.findUnique({ where: { email } });
             if (emailExists) {
+                logger.warn(`Update failed - email already in use: ${email}`);
                 return res.status(400).json({ message: "This email is already in use." });
             }
         }
@@ -177,12 +197,15 @@ const update = async (req, res) => {
         //Ama veritabanına hashlanmiş şekilde veri gönderilir ve kaydedilir.
         updatedUser.password = undefined;
 
+        logger.info(`User updated: ${email}`);
+
         return res.status(200).json({
             status: "Updated",
             user: updatedUser,
         });
 
     } catch (e) {
+        logger.error(`Update error: ${e.message}`);
         return res.status(500).json({message: e.message});
     }
 }

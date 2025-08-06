@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const logger = require('../utils/logger');
 
 const getTransactionDescription = (type, relatedUser) => {
     switch(type){
@@ -22,7 +23,8 @@ const validateTransactionDetails = async (req, res) => {
     let relatedAccountId = null;
 
     try {
-    if (!accountId || !type || !amount || amount <= 0) { //Geçersiz bilgilerde hata mesajı
+        if (!accountId || !type || !amount || amount <= 0) { //Geçersiz bilgilerde hata mesajı
+            logger.warn(`Invalid transaction data from user ${req.user.id}`);
             return res.status(400).json({ message: "Enter valid data"});
         }
 
@@ -32,10 +34,12 @@ const validateTransactionDetails = async (req, res) => {
         });
 
         if(!account){ //Mevcut değilse hata döndür
+            logger.warn(`Transaction failed - account not found: ${accountId}`);
             return res.status(404).json({ message: "Account not found"});
         }
 
         if (req.user.id !== account.userId) { //Kullanıcı ve hesaptaki idler uyuşmazsa işlem yaptırmama
+            logger.warn(`User ${req.user.id} attempted unauthorized transaction on account ${accountId}`);
             return res.status(403).json({ message: "You cannot make transactions to this account." });
         }
 
@@ -47,6 +51,7 @@ const validateTransactionDetails = async (req, res) => {
                 include: {user: true}
             });
             if(!relatedAccount) { //Girilen bilgilerde bi hesap yoksa hata döndür.
+                logger.warn(`Transfer failed - IBAN not found: ${relatedIban}`);
                 return res.status(404).json({message: "Iban not found"});
             }
 
@@ -59,6 +64,7 @@ const validateTransactionDetails = async (req, res) => {
             relatedAccountId = relatedAccount.id; //Modelde account ile ilişkiyi bu değişkenle kurduğumuz için gönderilen json mesajlarında bunu göndermek zorunda olduğumuz için o ibana ait relatedAccountId buluyoruz ve tanımlıyoruz.
 
             if(account.balance < amount) { // Girilen miktar balancetan büyükse hata
+                logger.warn(`Transfer failed - insufficient balance on account ${accountId}`);
                 return res.status(400).json({message: "Insufficient balance"});
             }
 
@@ -66,7 +72,8 @@ const validateTransactionDetails = async (req, res) => {
             if (!relatedIban || !relatedFirstName || !relatedLastName) {
                 return res.status(400).json({ message: "Missing receiver IBAN or name/surname" });
             }
-            
+
+            logger.info(`Validation successful from account ${accountId} to ${relatedAccountId}, amount: ${amount}`);
         }
 
         if (type === "WITHDRAW") {
@@ -77,6 +84,7 @@ const validateTransactionDetails = async (req, res) => {
 
         return res.status(200).json({ message: "Validation successful" });
     } catch (e) {
+        logger.error(`Validation error: ${e.message}`);
         return res.status(500).json({message: e.message});
     }
 }
@@ -87,8 +95,11 @@ const createTransaction = async (req, res) => {
 
     let relatedAccountId = null; //Para çekme yatırma işlemleri için en başta null yaptık karşı tarafın idsini.
 
+    logger.info(`Transaction attempt: ${type} | Account ID: ${accountId} | Amount: ${amount}`);
+
     try {
         if (!accountId || !type || !amount || amount <= 0) { //Geçersiz bilgilerde hata mesajı
+            logger.warn(`Invalid transaction data from user ${req.user.id}`);
             return res.status(400).json({ message: "Enter valid data"});
         }
 
@@ -98,10 +109,12 @@ const createTransaction = async (req, res) => {
         });
 
         if(!account){ //Mevcut değilse hata döndür
+            logger.warn(`Transaction failed - account not found: ${accountId}`);
             return res.status(404).json({ message: "Account not found"});
         }
 
         if (req.user.id !== account.userId) { //Kullanıcı ve hesaptaki idler uyuşmazsa işlem yaptırmama
+            logger.warn(`User ${req.user.id} attempted unauthorized transaction on account ${accountId}`);
             return res.status(403).json({ message: "You cannot make transactions to this account." });
         }
 
@@ -154,6 +167,8 @@ const createTransaction = async (req, res) => {
                     }
                 });
             }
+
+            logger.info(`Transfer successful from account ${accountId} to ${relatedAccountId}, amount: ${amount}`);
         }
 
         if (type === "DEPOSIT") {
@@ -161,7 +176,7 @@ const createTransaction = async (req, res) => {
                 where: {id: accountId},
                 data: {balance: {increment: amount}}
             });
-
+            logger.info(`Deposit: ${amount} to account ${accountId}`);
         }
 
         if (type === "WITHDRAW") {
@@ -173,6 +188,7 @@ const createTransaction = async (req, res) => {
                 where: {id: accountId},
                 data: {balance: {decrement: amount}}
             });
+            logger.info(`Withdraw: ${amount} from account ${accountId}`);
         }
 
         const description = getTransactionDescription(type, relatedUser); //Açıklama oluştur.
@@ -186,17 +202,23 @@ const createTransaction = async (req, res) => {
                 description
             }
         });
+
+        logger.info(`Transaction created successfully: ${type} | ID: ${newTransaction.id}`);
+
         return res.status(201).json({
             status: 201,
             transaction: newTransaction
         });
     } catch (e) {
+        logger.error(`Transaction error: ${e.message}`);
         return res.status(500).json({message: e.message});
     }
 }
 
 const getTransactionsByAccount = async (req, res) => {
     const accountId = parseInt(req.params.id);
+
+    logger.info(`Fetching transactions for account ${accountId}`);
 
     try {
         const transactions = await prisma.transaction.findMany({
@@ -216,6 +238,7 @@ const getTransactionsByAccount = async (req, res) => {
             transactions: transactions
         });
     } catch (e) {
+        logger.error(`Transaction fetch error: ${e.message}`);
         return res.status(500).json({message: e.message});
     }
 }
